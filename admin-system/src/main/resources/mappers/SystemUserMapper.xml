@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.admin.dao.system.SystemUserMapper">
+
+  <!-- 查询用户列表 -->
+  <resultMap id="SystemUserListVO" type="com.admin.dao.system.vo.SystemUserListVO" autoMapping="true">
+    <id column="ID" property="id"/>
+    <association property="department" javaType="com.admin.dao.system.model.SystemDepartment">
+      <result column="DEPARTMENT_ID" property="id"/>
+      <result column="DEPARTMENT_NAME" property="name"/>
+    </association>
+    <association property="createUserInfo" javaType="com.admin.dao.system.model.SystemUser">
+      <result column="CREATE_USER_ID" property="id"/>
+      <result column="CREATE_USER_NAME" property="username"/>
+    </association>
+    <association property="updateUserInfo" javaType="com.admin.dao.system.model.SystemUser">
+      <result column="UPDATE_USER_ID" property="id"/>
+      <result column="UPDATE_USER_NAME" property="username"/>
+    </association>
+  </resultMap>
+  <select id="selectManageList" parameterType="com.admin.dao.system.dto.QuerySystemUserDTO" resultMap="SystemUserListVO">
+    SELECT
+      DISTINCT
+      usr.ID, usr.BIRTHDAY, usr.EMAIL, usr.EMP_NO, usr.MOBILE, usr.AVATAR, usr.USERNAME, usr.REALNAME, usr.SEX, usr.FIXED, usr.CREATE_TIME, usr.UPDATE_TIME,
+      sd.ID AS DEPARTMENT_ID, sd.`NAME` AS DEPARTMENT_NAME,
+      create_user.ID CREATE_USER_ID, create_user.`USERNAME` CREATE_USER_NAME,
+      update_user.ID UPDETE_USER_ID, update_user.`USERNAME` UPDATE_USER_NAME
+    FROM `SYSTEM_USER` usr
+    LEFT JOIN `SYSTEM_USER` create_user ON create_user.ID = usr.CREATE_USER
+    LEFT JOIN `SYSTEM_USER` update_user ON update_user.ID = usr.UPDATE_USER
+    LEFT JOIN `SYSTEM_POSITION_USER` spu ON spu.USER_ID = usr.ID AND spu.DELETED = 0
+    LEFT JOIN `SYSTEM_POSITION` sp ON sp.ID = spu.POSITION_ID AND sp.DELETED = 0
+    LEFT JOIN `SYSTEM_DEPARTMENT_USER` sdu ON sdu.USER_ID = usr.ID AND sdu.DELETED = 0
+    LEFT JOIN `SYSTEM_DEPARTMENT` sd ON sd.ID = sdu.DEPARTMENT_ID AND sd.DELETED = 0
+    <where>
+      usr.DELETED = 0
+      <if test="dto.positionId != null">
+        AND spu.POSITION_ID = #{dto.positionId}
+      </if>
+      <if test="dto.strictDeptId != null">
+        AND sdu.DEPARTMENT_ID = #{dto.strictDeptId}
+      </if>
+      <if test="dto.departmentIds != null and dto.departmentIds.size > 0">
+        AND sdu.DEPARTMENT_ID IN
+        <foreach collection="dto.departmentIds" open="(" close=")" separator="," item="id">
+          #{id}
+        </foreach>
+      </if>
+      <if test="dto.username != null and dto.username != ''">
+        AND usr.`USERNAME` LIKE CONCAT('%', #{dto.username}, '%')
+      </if>
+      <if test="dto.realname != null and dto.realname != ''">
+        AND usr.`REALNAME` LIKE CONCAT('%', #{dto.realname}, '%')
+      </if>
+      <if test="dto.mobile != null and dto.mobile != ''">
+        AND usr.`MOBILE` LIKE CONCAT('%', #{dto.mobile}, '%')
+      </if>
+    </where>
+    ${orderByClause}
+  </select>
+
+</mapper>

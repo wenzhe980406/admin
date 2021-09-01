@@ -1,0 +1,19 @@
+package com.admin.dao.system;
+
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.admin.dao.system.dto.QuerySystemDictDataDTO;
+import com.admin.dao.system.model.SystemDictData;
+import com.admin.dao.system.vo.SystemDictDataListVO;
+
+import java.util.List;
+
+public interface SystemDictDataMapper extends BaseMapper<SystemDictData> {
+
+    /**
+     * 查询字典数据管理列表
+     * @author Eva.Caesar Liu
+     * @date 2021/08/31 21:16
+     */
+    List<SystemDictDataListVO> selectManageList(QuerySystemDictDataDTO dto);
+
+}

@@ -1,0 +1,224 @@
+package com.admin.biz.system.impl;
+
+import com.admin.biz.system.SystemMenuBiz;
+import com.admin.core.exception.BusinessException;
+import com.admin.core.constants.ResponseStatus;
+import com.admin.dao.system.dto.UpdateSystemMenuSortDTO;
+import com.admin.dao.system.model.SystemMenu;
+import com.admin.dao.system.vo.SystemMenuListVO;
+import com.admin.dao.system.vo.SystemMenuNodeVO;
+import com.admin.service.system.SystemMenuService;
+import org.springframework.beans.BeanUtils;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.CollectionUtils;
+
+import java.util.ArrayList;
+import java.util.List;
+
+@Service
+public class SystemMenuBizImpl implements SystemMenuBiz {
+
+    @Autowired
+    private SystemMenuService systemMenuService;
+
+    @Override
+    public Integer create(SystemMenu systemMenu) {
+        // 统计上级菜单下子菜单数量
+        SystemMenu countDto = new SystemMenu();
+        countDto.setParentId(systemMenu.getParentId());
+        countDto.setDeleted(Boolean.FALSE);
+        long subMenuCount = systemMenuService.count(countDto);
+        // 设置新建部门的顺序
+        systemMenu.setSort(Integer.valueOf("" + subMenuCount));
+        return systemMenuService.create(systemMenu);
+    }
+
+    @Override
+    public void updateById(SystemMenu systemMenu) {
+        SystemMenu dbMenu = systemMenuService.findById(systemMenu.getId());
+        // 如果上级菜单发生了变化，则重新调整菜单的排序
+        if (dbMenu.getParentId() != systemMenu.getParentId() && dbMenu.getParentId() != null && !dbMenu.getParentId().equals(systemMenu.getParentId())) {
+            // 统计上级菜单下子菜单数量
+            SystemMenu countDto = new SystemMenu();
+            countDto.setParentId(systemMenu.getParentId());
+            countDto.setDeleted(Boolean.FALSE);
+            long subMenuCount = systemMenuService.count(countDto);
+            systemMenu.setSort(Integer.valueOf("" + subMenuCount));
+        }
+        systemMenuService.updateById(systemMenu);
+    }
+
+    @Override
+    public void updateSort(UpdateSystemMenuSortDTO dto) {
+        SystemMenu currentMenu = systemMenuService.findById(dto.getId());
+        List<SystemMenu> menuPool;
+        if (currentMenu.getParentId() == null) {
+            menuPool = systemMenuService.findRootList();
+        } else {
+            SystemMenu queryDto = new SystemMenu();
+            queryDto.setParentId(currentMenu.getParentId());
+            menuPool = systemMenuService.findList(queryDto);
+        }
+        int currentMenuIndex = 0;
+        for (int i = 0; i < menuPool.size(); i++) {
+            if (menuPool.get(i).getId().equals(dto.getId())) {
+                currentMenuIndex = i;
+                break;
+            }
+        }
+        // 上移
+        if ("top".equals(dto.getDirection())) {
+            if (currentMenuIndex - 1 < 0) {
+                return;
+            }
+            SystemMenu preMenu = menuPool.remove(currentMenuIndex - 1);
+            menuPool.add(currentMenuIndex, preMenu);
+        }
+        // 下移
+        else {
+            if (currentMenuIndex + 1 > menuPool.size() - 1) {
+                return;
+            }
+            SystemMenu nextMenu = menuPool.remove(currentMenuIndex + 1);
+            menuPool.add(currentMenuIndex, nextMenu);
+        }
+        for (int i = 0; i < menuPool.size(); i++) {
+            menuPool.get(i).setSort(i);
+        }
+        // 修改
+        systemMenuService.updateByIdInBatch(menuPool);
+    }
+
+    @Override
+    public List<SystemMenuListVO> findTree() {
+        List<SystemMenuListVO> menus = systemMenuService.findList();
+        List<SystemMenuListVO> rootMenus = new ArrayList<>();
+        // 添加根菜单
+        for (SystemMenu menu : menus) {
+            if (menu.getParentId() == null) {
+                SystemMenuListVO rootMenu = new SystemMenuListVO();
+                BeanUtils.copyProperties(menu, rootMenu, "children");
+                rootMenu.setChildren(new ArrayList<>());
+                rootMenus.add(rootMenu);
+            }
+        }
+        menus.removeIf(menu -> menu.getParentId() == null);
+        for (SystemMenuListVO child : rootMenus) {
+            this.fillChildren(child, menus);
+        }
+        return rootMenus;
+    }
+
+    @Override
+    public List<SystemMenuNodeVO> findTree (Integer userId) {
+        SystemMenu queryDto = new SystemMenu();
+        queryDto.setDeleted(Boolean.FALSE);
+        List<SystemMenu> menus = systemMenuService.findByUserId(userId);
+        List<SystemMenuNodeVO> rootNodes = new ArrayList<>();
+        // 添加根菜单
+        for (SystemMenu menu : menus) {
+            if (menu.getParentId() == null) {
+                SystemMenuNodeVO nodeVO = new SystemMenuNodeVO();
+                nodeVO.setId(menu.getId());
+                nodeVO.setIndex("menu_" + menu.getId());
+                nodeVO.setLabel(menu.getName());
+                nodeVO.setUrl(menu.getPath());
+                nodeVO.setIcon(menu.getIcon());
+                nodeVO.setChildren(new ArrayList<>());
+                rootNodes.add(nodeVO);
+            }
+        }
+        menus.removeIf(menu -> menu.getParentId() == null);
+        for (SystemMenuNodeVO child : rootNodes) {
+            this.fillChildren(child, menus);
+        }
+        return rootNodes;
+    }
+
+    @Override
+    public void deleteById(Integer id) {
+        List<Integer> ids = systemMenuService.findChildren(id);
+        ids.add(id);
+        for (Integer id2 : ids) {
+            SystemMenu menu = systemMenuService.findById(id2);
+            if (menu == null) {
+                continue;
+            }
+            if (menu.getFixed()) {
+                throw new BusinessException(ResponseStatus.NOT_ALLOWED.getCode(), "请勿删除" + menu.getName() + ", 因为这是固定菜单");
+            }
+        }
+        systemMenuService.deleteByIdInBatch(ids);
+    }
+
+    @Override
+    @Transactional
+    public void deleteByIdInBatch(List<Integer> ids) {
+        if (CollectionUtils.isEmpty(ids)) {
+            return;
+        }
+        for (Integer id : ids) {
+            this.deleteById(id);
+        }
+    }
+
+    /**
+     * 填充子菜单
+     * @author Eva.Caesar Liu
+     * @date 2021/08/31 21:16
+     */
+    private void fillChildren(SystemMenuListVO parent, List<SystemMenuListVO> menus) {
+        if (menus.size() == 0) {
+            return;
+        }
+        List<Integer> handledIds = new ArrayList<>();
+        for (SystemMenu menu : menus) {
+            if (parent.getId().equals(menu.getParentId())) {
+                SystemMenuListVO child = new SystemMenuListVO();
+                BeanUtils.copyProperties(menu, child, "children");
+                child.setChildren(new ArrayList<>());
+                parent.getChildren().add(child);
+                handledIds.add(menu.getId());
+            }
+        }
+        menus.removeIf(menu -> handledIds.contains(menu.getId()));
+        parent.setHasChildren(Boolean.TRUE);
+        if (parent.getChildren().size() > 0) {
+            parent.setHasChildren(Boolean.FALSE);
+            for (SystemMenuListVO child : parent.getChildren()) {
+                this.fillChildren(child, menus);
+            }
+        }
+    }
+
+    /**
+     * 填充子菜单
+     * @author Eva.Caesar Liu
+     * @date 2021/08/31 21:16
+     */
+    private void fillChildren(SystemMenuNodeVO parent, List<SystemMenu> menus) {
+        if (menus.size() == 0) {
+            return;
+        }
+        List<Integer> handledIds = new ArrayList<>();
+        for (SystemMenu menu : menus) {
+            if (parent.getId().equals(menu.getParentId())) {
+                SystemMenuNodeVO child = new SystemMenuNodeVO();
+                child.setId(menu.getId());
+                child.setLabel(menu.getName());
+                child.setUrl(menu.getPath());
+                child.setIcon(menu.getIcon());
+                child.setIndex("menu_" + menu.getId());
+                child.setChildren(new ArrayList<>());
+                parent.getChildren().add(child);
+                handledIds.add(menu.getId());
+            }
+        }
+        menus.removeIf(menu -> handledIds.contains(menu.getId()));
+        for (SystemMenuNodeVO child : parent.getChildren()) {
+            this.fillChildren(child, menus);
+        }
+    }
+}
