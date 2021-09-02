@@ -9,7 +9,7 @@ import org.springframework.web.bind.annotation.GetMapping;
  * @author 86
  * @date 2021/08/31 21:09
  */
-@FeignClient("SAMPLE-SERVICE")
+//@FeignClient("SAMPLE-SERVICE")
 public interface SampleClient {
 
     /**
